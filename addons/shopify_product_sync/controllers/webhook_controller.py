@@ -1,8 +1,10 @@
 from odoo import http
 from odoo.http import request
-from odoo.tools import html2plaintext # Imports Odoo's HTML stripper
+from odoo.tools import html2plaintext
 import json
 import logging
+import requests
+import base64
 
 _logger = logging.getLogger(__name__)
 
@@ -18,30 +20,40 @@ class ShopifyWebhookController(http.Controller):
                 return request.make_response(json.dumps({'error': 'No Shopify ID provided'}), status=400)
 
             title = payload.get('title')
-            # Clean the HTML tags into plain text for Odoo's quotation fields
             raw_html = payload.get('body_html') or ''
             clean_description = html2plaintext(raw_html)
             
             variants = payload.get('variants', [])
             options = payload.get('options', [])
 
+            # --- FETCH THE MAIN IMAGE ---
+            image_base64 = False
+            image_data = payload.get('image')
+            if image_data and image_data.get('src'):
+                try:
+                    response = requests.get(image_data.get('src'), timeout=10)
+                    if response.status_code == 200:
+                        image_base64 = base64.b64encode(response.content)
+                except Exception as img_e:
+                    _logger.warning(f"Could not fetch main image for {title}: {str(img_e)}")
+
             ProductTemplate = request.env['product.template'].sudo()
             ProductProduct = request.env['product.product'].sudo()
 
-            # 1. Handle the Product Template (Parent)
             existing_template = ProductTemplate.search([('shopify_product_id', '=', shopify_id)], limit=1)
-
-            # Establish the base list_price from the first variant
             list_price = float(variants[0].get('price', 0.0)) if variants else 0.0
             
             template_vals = {
                 'name': title,
-                'description_sale': clean_description, # Use the cleaned text here
+                'description_sale': clean_description,
                 'list_price': list_price,
-                'type': 'consu',          # Goods in Odoo 19
-                'is_storable': True,      # Enables inventory tracking
+                'type': 'consu',          
+                'is_storable': True,      
                 'shopify_product_id': shopify_id,
             }
+
+            if image_base64:
+                template_vals['image_1920'] = image_base64
 
             if existing_template:
                 existing_template.write(template_vals)
@@ -51,13 +63,11 @@ class ShopifyWebhookController(http.Controller):
                 template = ProductTemplate.create(template_vals)
                 _logger.info(f"Created Shopify Template: {title}")
 
-            # --- THE FALLBACK FIX ---
             if not options and variants:
                 inferred_vals = set(v.get('option1') for v in variants if v.get('option1') and v.get('option1') != 'Default Title')
                 if inferred_vals:
                     options.append({'name': 'Variation', 'values': list(inferred_vals)})
 
-            # 2. Handle Attributes
             if options:
                 for option in options:
                     attr_name = option.get('name')
@@ -97,32 +107,49 @@ class ShopifyWebhookController(http.Controller):
                             'value_ids': [(6, 0, val_ids)]
                         })
 
-            # 3. Update the Auto-Generated Variants & Set Pricing
+            # --- PROCESS VARIANTS & SPECIFIC IMAGES ---
             if variants:
                 odoo_variants = ProductProduct.search([('product_tmpl_id', '=', template.id)])
+                
+                # Create a lookup map for variant image URLs from the payload's bottom 'images' array
+                master_images = {img.get('id'): img.get('src') for img in payload.get('images', [])}
+                downloaded_images = {} # Cache to avoid re-downloading the same image
                 
                 for var in variants:
                     var_id = str(var.get('id'))
                     var_sku = var.get('sku') or False
                     option1 = var.get('option1') 
                     var_price = float(var.get('price', 0.0))
+                    var_img_id = var.get('image_id')
                     
                     for ov in odoo_variants:
                         val_names = ov.product_template_attribute_value_ids.mapped('name')
                         
                         if len(odoo_variants) == 1 or (option1 and option1 in val_names):
-                            ov.write({
+                            var_vals = {
                                 'shopify_variant_id': var_id,
                                 'default_code': var_sku,
-                            })
+                            }
                             
-                            # Calculate and apply the Odoo price_extra
-                            # Odoo Variant Price = Template Base Price + Extra Price
+                            # If the variant has a specific image, download and apply it
+                            if var_img_id and var_img_id in master_images:
+                                if var_img_id not in downloaded_images:
+                                    try:
+                                        img_resp = requests.get(master_images[var_img_id], timeout=10)
+                                        if img_resp.status_code == 200:
+                                            downloaded_images[var_img_id] = base64.b64encode(img_resp.content)
+                                    except Exception as e:
+                                        _logger.warning(f"Could not fetch variant image: {str(e)}")
+                                
+                                if var_img_id in downloaded_images:
+                                    var_vals['image_1920'] = downloaded_images[var_img_id]
+
+                            ov.write(var_vals)
+                            
                             price_extra = var_price - list_price
                             if ov.product_template_attribute_value_ids:
                                 ov.product_template_attribute_value_ids[0].write({'price_extra': price_extra})
 
-                            _logger.info(f"Mapped Variant: {var_sku} | Extra Price: {price_extra}")
                             break
 
             return request.make_response(
