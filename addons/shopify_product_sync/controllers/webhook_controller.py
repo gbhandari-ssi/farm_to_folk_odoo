@@ -10,8 +10,12 @@ _logger = logging.getLogger(__name__)
 
 class ShopifyWebhookController(http.Controller):
 
-    @http.route('/shopify/webhook/product_create', type='http', auth='public', methods=['POST'], csrf=False)
-    def shopify_product_create(self, **kwargs):
+    # Listen to BOTH create and update webhooks on the same function
+    @http.route([
+        '/shopify/webhook/product_create', 
+        '/shopify/webhook/product_update'
+    ], type='http', auth='public', methods=['POST'], csrf=False)
+    def shopify_product_sync(self, **kwargs):
         try:
             payload = json.loads(request.httprequest.data)
             
@@ -31,7 +35,12 @@ class ShopifyWebhookController(http.Controller):
             image_data = payload.get('image')
             if image_data and image_data.get('src'):
                 try:
-                    response = requests.get(image_data.get('src'), timeout=10)
+                    master_url = image_data.get('src')
+                    if 'cdn.shopify.com' in master_url:
+                        master_url = master_url.split('?')[0]
+                    
+                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+                    response = requests.get(master_url, headers=headers, timeout=10)
                     if response.status_code == 200:
                         image_base64 = base64.b64encode(response.content)
                 except Exception as img_e:
@@ -55,6 +64,7 @@ class ShopifyWebhookController(http.Controller):
             if image_base64:
                 template_vals['image_1920'] = image_base64
 
+            # --- UPSERT LOGIC (Handles both Create and Update) ---
             if existing_template:
                 existing_template.write(template_vals)
                 template = existing_template
@@ -109,12 +119,25 @@ class ShopifyWebhookController(http.Controller):
 
             # --- PROCESS VARIANTS & SPECIFIC IMAGES ---
             if variants:
+                # 1. Build the "Master Guest List" of active Shopify Variant IDs
+                incoming_variant_ids = [str(v.get('id')) for v in variants]
+                
+                # Safeguard for products with >100 variants using variant_gids
+                variant_gids = payload.get('variant_gids', [])
+                for gid_obj in variant_gids:
+                    gid_string = gid_obj.get('admin_graphql_api_id', '')
+                    if gid_string:
+                        # Extract the numeric ID from "gid://shopify/ProductVariant/12345"
+                        numeric_id = gid_string.split('/')[-1]
+                        if numeric_id not in incoming_variant_ids:
+                            incoming_variant_ids.append(numeric_id)
+
                 odoo_variants = ProductProduct.search([('product_tmpl_id', '=', template.id)])
                 
-                # Create a lookup map for variant image URLs from the payload's bottom 'images' array
                 master_images = {img.get('id'): img.get('src') for img in payload.get('images', [])}
-                downloaded_images = {} # Cache to avoid re-downloading the same image
+                downloaded_images = {} 
                 
+                # 2. Update existing variants or map them
                 for var in variants:
                     var_id = str(var.get('id'))
                     var_sku = var.get('sku') or False
@@ -131,11 +154,16 @@ class ShopifyWebhookController(http.Controller):
                                 'default_code': var_sku,
                             }
                             
-                            # If the variant has a specific image, download and apply it
                             if var_img_id and var_img_id in master_images:
                                 if var_img_id not in downloaded_images:
                                     try:
-                                        img_resp = requests.get(master_images[var_img_id], timeout=10)
+                                        master_var_url = master_images[var_img_id]
+                                        if 'cdn.shopify.com' in master_var_url:
+                                            master_var_url = master_var_url.split('?')[0]
+                                            
+                                        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+                                        img_resp = requests.get(master_var_url, headers=headers, timeout=10)
+                                        
                                         if img_resp.status_code == 200:
                                             downloaded_images[var_img_id] = base64.b64encode(img_resp.content)
                                     except Exception as e:
@@ -151,6 +179,12 @@ class ShopifyWebhookController(http.Controller):
                                 ov.product_template_attribute_value_ids[0].write({'price_extra': price_extra})
 
                             break
+                
+                # 3. Detect and Archive Deleted Variants
+                for ov in odoo_variants:
+                    if ov.shopify_variant_id and ov.shopify_variant_id not in incoming_variant_ids:
+                        ov.write({'active': False})
+                        _logger.info(f"Archived deleted Shopify Variant: {ov.default_code} (ID: {ov.shopify_variant_id})")
 
             return request.make_response(
                 json.dumps({'status': 'success', 'shopify_id': shopify_id}), 
@@ -159,4 +193,35 @@ class ShopifyWebhookController(http.Controller):
 
         except Exception as e:
             _logger.error(f"Shopify Product Webhook Error: {str(e)}")
+            return request.make_response(json.dumps({'error': 'Internal Server Error'}), status=500)
+
+    
+    @http.route('/shopify/webhook/product_delete', type='http', auth='public', methods=['POST'], csrf=False)
+    def shopify_product_delete(self, **kwargs):
+        try:
+            payload = json.loads(request.httprequest.data)
+            
+            shopify_id = str(payload.get('id'))
+            if not shopify_id or shopify_id == 'None':
+                return request.make_response(json.dumps({'error': 'No Shopify ID provided'}), status=400)
+
+            ProductTemplate = request.env['product.template'].sudo()
+            
+            # Find the product by its Shopify ID
+            existing_template = ProductTemplate.search([('shopify_product_id', '=', shopify_id)], limit=1)
+
+            if existing_template:
+                # Soft Delete: Archive the product to prevent database relationship errors
+                existing_template.write({'active': False})
+                _logger.info(f"Archived Shopify Product ID: {shopify_id} ({existing_template.name})")
+            else:
+                _logger.warning(f"Delete request ignored: Shopify ID {shopify_id} not found in Odoo.")
+
+            return request.make_response(
+                json.dumps({'status': 'success', 'shopify_id': shopify_id, 'action': 'archived'}), 
+                headers=[('Content-Type', 'application/json')]
+            )
+
+        except Exception as e:
+            _logger.error(f"Shopify Product Delete Webhook Error: {str(e)}")
             return request.make_response(json.dumps({'error': 'Internal Server Error'}), status=500)
