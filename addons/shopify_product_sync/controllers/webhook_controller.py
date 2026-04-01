@@ -137,6 +137,12 @@ class ShopifyWebhookController(http.Controller):
                 master_images = {img.get('id'): img.get('src') for img in payload.get('images', [])}
                 downloaded_images = {} 
                 
+                # Get the default internal stock location (usually WH/Stock)
+                stock_location = request.env['stock.location'].sudo().search([
+                    ('usage', '=', 'internal'),
+                    ('company_id', '=', request.env.company.id)
+                ], limit=1)
+
                 # 2. Update existing variants or map them
                 for var in variants:
                     var_id = str(var.get('id'))
@@ -144,6 +150,7 @@ class ShopifyWebhookController(http.Controller):
                     option1 = var.get('option1') 
                     var_price = float(var.get('price', 0.0))
                     var_img_id = var.get('image_id')
+                    var_qty = var.get('inventory_quantity') # Grab the Shopify Quantity
                     
                     for ov in odoo_variants:
                         val_names = ov.product_template_attribute_value_ids.mapped('name')
@@ -172,11 +179,34 @@ class ShopifyWebhookController(http.Controller):
                                 if var_img_id in downloaded_images:
                                     var_vals['image_1920'] = downloaded_images[var_img_id]
 
+                            # Update the basic variant info
                             ov.write(var_vals)
                             
+                            # Update the extra price
                             price_extra = var_price - list_price
                             if ov.product_template_attribute_value_ids:
                                 ov.product_template_attribute_value_ids[0].write({'price_extra': price_extra})
+
+                            if var_qty is not None and stock_location:
+                                # Find existing stock record for this variant and location
+                                quant = request.env['stock.quant'].sudo().search([
+                                    ('product_id', '=', ov.id),
+                                    ('location_id', '=', stock_location.id)
+                                ], limit=1)
+
+                                # If no stock record exists, create an empty one
+                                if not quant:
+                                    quant = request.env['stock.quant'].sudo().create({
+                                        'product_id': ov.id,
+                                        'location_id': stock_location.id,
+                                    })
+
+                                # Safely apply the inventory adjustment
+                                quant.with_context(inventory_mode=True).write({
+                                    'inventory_quantity': float(var_qty)
+                                })
+                                quant.action_apply_inventory()
+                                _logger.info(f"Inventory Adjusted: {ov.default_code} -> {var_qty} units")
 
                             break
                 
