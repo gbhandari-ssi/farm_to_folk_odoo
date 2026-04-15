@@ -32,9 +32,11 @@
                 <field name="create_date" string="Date"/>
                 <field name="datas" filename="name" widget="binary" string="Download"/>
                 
-                <button name="action_replace_po_from_list" type="object" string="Replace" icon="fa-refresh" class="btn-secondary"/>
+                <button name="action_replace_po_from_list" type="object" title="Replace PO" icon="fa-refresh" class="btn-secondary"/>
                 
-                <button name="action_remove_po_from_list" type="object" string="Remove" icon="fa-trash" class="btn-danger" invisible="is_sale_invoiced"/>
+                <button name="action_remove_po_from_list" type="object" title="Remove PO" icon="fa-trash" class="btn-danger" 
+                        confirm="Are you sure you want to permanently delete this Purchase Order?" 
+                        invisible="is_sale_invoiced"/>
             </list>
         </field>
     </record>

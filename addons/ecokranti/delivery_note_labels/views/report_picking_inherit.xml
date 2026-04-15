@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="report_delivery_custom_title" inherit_id="stock.report_delivery_document">
+        
+        <xpath expr="//span[@t-out='o.picking_type_id._get_code_report_name()']" position="replace">
+            
+            <span t-if="o.picking_type_id.code == 'internal' and 'Pick' in o.picking_type_id.name">
+                Delivery Note
+            </span>
+            
+            <span t-else="" t-out="o.picking_type_id._get_code_report_name()"/>
+            
+        </xpath>
+        
+    </template>
+</odoo>
