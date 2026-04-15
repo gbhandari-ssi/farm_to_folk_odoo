@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_picking_form_inherit_delivery_btn" model="ir.ui.view">
+        <field name="name">stock.picking.form.inherit.delivery.btn</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            
+            <xpath expr="//header" position="inside">
+                <button name="%(stock.action_report_delivery)d"
+                        string="Print Delivery Note"
+                        type="action"
+                        class="btn-primary"
+                        icon="fa-print"
+                        invisible="state not in ('assigned', 'done') or picking_type_code != 'internal'"/>
+            </xpath>
+            
+        </field>
+    </record>
+
+    <template id="report_delivery_document_inherit_custom_title" inherit_id="stock.report_delivery_document">
+        
+        <xpath expr="//h2" position="replace">
+            <h2 class="mt-2 mb-2">
+                
+                <t t-if="o.picking_type_id.code == 'internal' and o.location_dest_id.usage == 'transit'">
+                    <span>Delivery Note</span>
+                </t>
+                
+                <t t-else="">
+                    <span t-if="o.state == 'draft'">Draft Move</span>
+                    <span t-elif="o.picking_type_id.code == 'outgoing'">Delivery Note</span>
+                    <span t-elif="o.picking_type_id.code == 'incoming'">Receipt</span>
+                    <span t-else="">Internal Move</span>
+                </t>
+                
+                <span t-field="o.name"/>
+                
+            </h2>
+        </xpath>
+        
+    </template>
+
+</odoo>

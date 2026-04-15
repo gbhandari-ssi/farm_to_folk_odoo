@@ -1,0 +1,1 @@
+# Leave this file completely empty. It just tells Odoo this is a module directory.

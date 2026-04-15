@@ -1,0 +1,1 @@
+from . import interested_product
