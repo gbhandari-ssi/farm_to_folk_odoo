@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_crm_lead_form_inherit_sample_delivery" model="ir.ui.view">
+        <field name="name">crm.lead.form.inherit.sample.delivery</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+        <field name="arch" type="xml">
+            
+            <xpath expr="//div[@name='button_box']" position="after">
+                <widget name="web_ribbon" title="Sample Approved" bg_color="text-bg-success" invisible="not sample_approved or stage_id != 3"/>
+            </xpath>
+
+            <xpath expr="//notebook" position="before">
+                <group string="Sample Tracking" name="sample_tracking" invisible="type == 'lead' or stage_id in [1, 2]">
+                    <group>
+                        <field name="sample_delivery_partner" placeholder="e.g. FedEx, DHL..."/>
+                        <field name="tracking_id"/>
+                        <field name="tracking_link" widget="url"/>
+                    </group>
+                    <group>
+                        <field name="sample_sent_date"/>
+                        <field name="sample_delivered_date"/>
+                        <field name="sample_approved" widget="boolean_toggle" invisible="stage_id in [1, 2]"/>
+                    </group>
+                </group>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="crm_case_kanban_view_leads_inherit_sample" model="ir.ui.view">
+        <field name="name">crm.lead.kanban.inherit.sample</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_case_kanban_view_leads"/>
+        <field name="arch" type="xml">
+            
+            <xpath expr="//field[@name='active']" position="after">
+                <field name="sample_approved"/>
+            </xpath>
+
+            <xpath expr="//field[@name='lead_properties']" position="before">
+                <div t-if="record.stage_id.raw_value == 3 and record.sample_approved.raw_value">
+                    <span class="badge rounded-pill text-bg-success mt-1 d-inline-flex align-items-center">
+                        Sample Approved
+                    </span>
+                </div>
+            </xpath>
+
+        </field>
+    </record>
+</odoo>

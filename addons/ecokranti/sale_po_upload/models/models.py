@@ -23,14 +23,16 @@ class SaleOrder(models.Model):
     def action_view_po(self):
         """Action for the Smart Button to open a clean list of PO files"""
         self.ensure_one()
-        list_view_id = self.env.ref('sale_po_upload.view_po_attachment_list').id
+        # Make sure the module name here matches your actual module name
+        list_view_id = self.env.ref('sale_po_upload.view_po_attachment_list').id 
         
         return {
             'name': 'Purchase Orders',
             'type': 'ir.actions.act_window',
             'res_model': 'ir.attachment',
             'views': [(list_view_id, 'list')],
-            'domain': [('res_model', '=', 'sale.order'), ('res_id', '=', self.id)],
+            # UPDATE: Filter to show ONLY the specific PO attachment
+            'domain': [('id', '=', self.po_attachment_id.id)],
         }
 
 class IrAttachment(models.Model):

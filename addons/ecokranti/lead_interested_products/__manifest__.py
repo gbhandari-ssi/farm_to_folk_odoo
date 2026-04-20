@@ -1,9 +1,7 @@
 {
-    'name': 'Interested Products Tracking',
+    'name': 'CRM Interested Products',
     'version': '1.0',
-    'category': 'Sales',
-    'summary': 'Tracks interested products on CRM leads',
-    'depends': ['crm', 'stock'],
+    'depends': ['crm', 'product'],
     'data': [
         'security/ir.model.access.csv',
         'views/interested_product_views.xml',

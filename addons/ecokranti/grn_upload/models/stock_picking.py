@@ -23,7 +23,7 @@ class StockPicking(models.Model):
     def action_view_grn(self):
         """Action for the Smart Button to open the GRN file list"""
         self.ensure_one()
-        # Updated to match your actual folder name
+        # Make sure the module name here matches your actual module name
         list_view_id = self.env.ref('grn_upload.view_grn_attachment_list').id
         
         return {
@@ -31,7 +31,8 @@ class StockPicking(models.Model):
             'type': 'ir.actions.act_window',
             'res_model': 'ir.attachment',
             'views': [(list_view_id, 'list')],
-            'domain': [('res_model', '=', 'stock.picking'), ('res_id', '=', self.id)],
+            # UPDATE: Filter to show ONLY the specific GRN attachment
+            'domain': [('id', '=', self.grn_attachment_id.id)],
         }
 
     def button_validate(self):
