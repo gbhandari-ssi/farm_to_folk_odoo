@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_order_tree_inherit_delivery_status" model="ir.ui.view">
+        <field name="name">sale.order.tree.inherit.delivery.status</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_tree"/>
+        <field name="arch" type="xml">
+            
+            <xpath expr="//field[@name='payment_status']" position="after">
+                <xpath expr="//field[@name='delivery_status']" position="move"/>
+            </xpath>
+
+            <xpath expr="//field[@name='delivery_status']" position="attributes">
+                <attribute name="optional">show</attribute>
+                <attribute name="widget">badge</attribute>
+                <attribute name="decoration-success">delivery_status == 'full'</attribute>
+                <attribute name="decoration-warning">delivery_status == 'partial'</attribute>
+                <attribute name="decoration-info">delivery_status in ['pending', 'started']</attribute>
+            </xpath>
+
+        </field>
+    </record>
+</odoo>
