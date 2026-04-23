@@ -4,15 +4,16 @@ from odoo.exceptions import UserError
 class StockPicking(models.Model):
     _inherit = 'stock.picking'
 
+    # Add copy=False so backorders generate with a blank slate
     delivery_partner = fields.Selection([
         ('blue_dart', 'Blue Dart'),
         ('delhivery', 'Delhivery'),
         ('dtdc', 'DTDC'),
         ('fedex', 'FedEx')
-    ], string='Delivery Partner')
+    ], string='Delivery Partner', copy=False)
     
-    tracking_id = fields.Char(string='Tracking ID')
-    tracking_link = fields.Char(string='Tracking Link')
+    tracking_id = fields.Char(string='Tracking ID', copy=False)
+    tracking_link = fields.Char(string='Tracking Link', copy=False)
 
     def button_validate(self):
         """ 1. The Gatekeeper: Blocks PICK validation if data is missing """
